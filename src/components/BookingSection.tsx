@@ -1,57 +1,82 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { siteConfig } from "@/config/site";
+import { useBooking } from "@/lib/booking";
+import { buildTimeSlots, formatPrice, whatsappLink } from "@/lib/site";
 
-const staff = [
-  { id: 1, name: "Marcus J.", role: "Senior Barber" },
-  { id: 2, name: "Alex R.", role: "Stylist" },
-  { id: 3, name: "David K.", role: "Master Barber" },
-];
-
-const serviceOptions = [
-  "Classic Haircut",
-  "Beard Trim & Shape",
-  "The Full Package",
-  "Hair Styling",
-  "Hot Towel Shave",
-  "Facial Treatment",
-];
-
-const timeSlots = [
-  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-  "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
-  "4:00 PM", "4:30 PM", "5:00 PM",
-];
+const ANY_BARBER = "Любой мастер";
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+// Неделя начинается с понедельника
+const getFirstDayOfMonth = (year: number, month: number) => (new Date(year, month, 1).getDay() + 6) % 7;
+
+const optionClass = (active: boolean) =>
+  `font-body text-sm py-3 px-4 border transition-colors duration-200 ${
+    active
+      ? "bg-accent text-accent-foreground border-accent"
+      : "border-primary-foreground/20 text-primary-foreground/70 hover:border-primary-foreground/40"
+  }`;
+
+const inputClass =
+  "font-body text-sm py-3 px-4 bg-transparent border border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 focus:border-accent focus:outline-none transition-colors";
 
 const BookingSection = () => {
   const { toast } = useToast();
+  const { preset } = useBooking();
+  const { branches, services, barbers, booking } = siteConfig;
+  const isWhatsApp = booking.type === "whatsapp";
+  const multiBranch = branches.length > 1;
+
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(multiBranch ? null : branches[0]?.id ?? null);
+  const [selectedService, setSelectedService] = useState<string | null>(null);
+  const [selectedBarber, setSelectedBarber] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [selectedStaff, setSelectedStaff] = useState<number | null>(null);
-  const [selectedService, setSelectedService] = useState<string | null>(null);
 
   const [contactName, setContactName] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+
+  // Кнопки «Записаться» на странице передают выбранную услугу/филиал
+  useEffect(() => {
+    if (preset.service) setSelectedService(preset.service);
+    if (preset.branchId && preset.branchId !== selectedBranchId) {
+      setSelectedBranchId(preset.branchId);
+      setSelectedBarber(null);
+      setSelectedTime(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
+
+  const branch = branches.find((b) => b.id === selectedBranchId);
+  const branchBarbers = barbers.filter((b) => b.branchId === selectedBranchId);
+  const timeSlots = useMemo(
+    () => buildTimeSlots(booking.slots.from, booking.slots.to, booking.slots.stepMinutes),
+    [booking.slots],
+  );
 
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
-  const monthName = new Date(currentYear, currentMonth).toLocaleString("default", { month: "long" });
+  const monthName = new Date(currentYear, currentMonth).toLocaleString("ru-RU", { month: "long" });
+  const isCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
 
   const prevMonth = () => {
+    if (isCurrentMonth) return;
     if (currentMonth === 0) { setCurrentMonth(11); setCurrentYear(currentYear - 1); }
     else setCurrentMonth(currentMonth - 1);
+    setSelectedDay(null);
+    setSelectedTime(null);
   };
 
   const nextMonth = () => {
     if (currentMonth === 11) { setCurrentMonth(0); setCurrentYear(currentYear + 1); }
     else setCurrentMonth(currentMonth + 1);
+    setSelectedDay(null);
+    setSelectedTime(null);
   };
 
   const isPast = (day: number) => {
@@ -60,101 +85,151 @@ const BookingSection = () => {
     return d < t;
   };
 
-  const allSelected = selectedService && selectedStaff && selectedDay && selectedTime;
+  const isPastSlot = (slot: string) => {
+    if (!isCurrentMonth || selectedDay !== today.getDate()) return false;
+    const [h, m] = slot.split(":").map(Number);
+    return h * 60 + m <= today.getHours() * 60 + today.getMinutes();
+  };
+
+  const selectBranch = (id: string) => {
+    setSelectedBranchId(id);
+    setSelectedBarber(null);
+    setSelectedTime(null);
+  };
+
+  const dateLabel = selectedDay
+    ? new Date(currentYear, currentMonth, selectedDay).toLocaleDateString("ru-RU", {
+        day: "numeric",
+        month: "long",
+      })
+    : "";
+
+  const allSelected = branch && selectedService && selectedBarber && selectedDay && selectedTime;
+
+  const resetForm = () => {
+    setSelectedService(null);
+    setSelectedBarber(null);
+    setSelectedDay(null);
+    setSelectedTime(null);
+    setContactName("");
+    setContactPhone("");
+  };
 
   const handleConfirm = () => {
-    if (!contactName.trim() || !contactEmail.trim() || !contactPhone.trim()) {
-      toast({ title: "Please fill in all contact fields", variant: "destructive" });
+    if (!branch) return;
+
+    if (!contactName.trim() || !contactPhone.trim()) {
+      toast({ title: "Заполните имя и телефон", variant: "destructive" });
       return;
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(contactEmail.trim())) {
-      toast({ title: "Please enter a valid email address", variant: "destructive" });
+    if (contactPhone.replace(/\D/g, "").length < 10) {
+      toast({ title: "Проверьте номер телефона", variant: "destructive" });
+      return;
+    }
+
+    if (isWhatsApp) {
+      const lines = [
+        `Здравствуйте! Хочу записаться в ${siteConfig.brand.name}.`,
+        multiBranch ? `Филиал: ${branch.name} (${branch.address})` : null,
+        `Услуга: ${selectedService}`,
+        `Мастер: ${selectedBarber}`,
+        `Дата: ${dateLabel}`,
+        `Время: ${selectedTime}`,
+        `Имя: ${contactName.trim()}`,
+        `Телефон: ${contactPhone.trim()}`,
+      ].filter(Boolean);
+      const to = booking.whatsapp ?? branch.whatsapp;
+      window.open(whatsappLink(to, lines.join("\n")), "_blank", "noopener,noreferrer");
       return;
     }
 
     toast({
-      title: "Appointment Confirmed!",
-      description: `${selectedService} with ${staff.find((s) => s.id === selectedStaff)?.name} on ${monthName} ${selectedDay}, ${currentYear} at ${selectedTime}. Confirmation sent to ${contactEmail.trim()}.`,
+      title: "Вы записаны!",
+      description: `${selectedService}, мастер: ${selectedBarber}, ${dateLabel} в ${selectedTime}${
+        multiBranch ? `, ${branch.name}` : ""
+      }. Мы перезвоним на ${contactPhone.trim()} для подтверждения.`,
     });
-
-    // Reset form
-    setSelectedService(null);
-    setSelectedStaff(null);
-    setSelectedDay(null);
-    setSelectedTime(null);
-    setContactName("");
-    setContactEmail("");
-    setContactPhone("");
+    resetForm();
   };
 
   return (
     <section id="booking" className="py-24 section-padding bg-primary">
       <div className="max-w-[800px] mx-auto">
         <h2 className="font-display text-primary-foreground text-5xl md:text-7xl uppercase tracking-tight text-center">
-          Book Your Appointment
+          Онлайн-запись
         </h2>
         <p className="font-body text-primary-foreground/60 mt-4 text-center">
-          Select your service, barber, date, and time below.
+          Выберите {multiBranch ? "филиал, " : ""}услугу, мастера, дату и время.
         </p>
 
+        {/* Branch Selection */}
+        {multiBranch && (
+          <div className="mt-12">
+            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Филиал</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-3">
+              {branches.map((b) => (
+                <button key={b.id} onClick={() => selectBranch(b.id)} className={`${optionClass(selectedBranchId === b.id)} text-left`}>
+                  <span className="block font-medium">{b.address}</span>
+                  <span className="block text-xs opacity-60">{b.district}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Service Selection */}
-        <div className="mt-12">
-          <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Service</label>
+        <div className={multiBranch ? "mt-10" : "mt-12"}>
+          <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Услуга</label>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
-            {serviceOptions.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSelectedService(s)}
-                className={`font-body text-sm py-3 px-4 border transition-colors duration-200 ${
-                  selectedService === s
-                    ? "bg-accent text-accent-foreground border-accent"
-                    : "border-primary-foreground/20 text-primary-foreground/70 hover:border-primary-foreground/40"
-                }`}
-              >
-                {s}
+            {services.map((s) => (
+              <button key={s.name} onClick={() => setSelectedService(s.name)} className={optionClass(selectedService === s.name)}>
+                <span className="block">{s.name}</span>
+                <span className="block text-xs opacity-60">{formatPrice(s.price)}</span>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Staff Selection */}
-        <div className="mt-10">
-          <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Barber</label>
-          <div className="flex gap-3 mt-3">
-            {staff.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setSelectedStaff(s.id)}
-                className={`flex-1 py-4 px-4 border text-center transition-colors duration-200 ${
-                  selectedStaff === s.id
-                    ? "bg-accent text-accent-foreground border-accent"
-                    : "border-primary-foreground/20 text-primary-foreground/70 hover:border-primary-foreground/40"
-                }`}
-              >
-                <span className="font-display text-lg block">{s.name}</span>
-                <span className="font-body text-xs opacity-60">{s.role}</span>
-              </button>
-            ))}
+        {/* Barber Selection */}
+        {branch && (
+          <div className="mt-10 animate-fade-in">
+            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Мастер</label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+              {[...branchBarbers.map((b) => ({ name: b.name, role: b.role })), { name: ANY_BARBER, role: "Ближайший свободный" }].map((b) => (
+                <button
+                  key={b.name}
+                  onClick={() => setSelectedBarber(b.name)}
+                  className={`${optionClass(selectedBarber === b.name)} py-4 text-center`}
+                >
+                  <span className="font-display text-lg block">{b.name}</span>
+                  <span className="font-body text-xs opacity-60">{b.role}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Calendar */}
         <div className="mt-10">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={prevMonth} className="text-primary-foreground/60 hover:text-primary-foreground">
+            <button
+              onClick={prevMonth}
+              disabled={isCurrentMonth}
+              aria-label="Предыдущий месяц"
+              className="text-primary-foreground/60 hover:text-primary-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+            >
               <ChevronLeft size={20} />
             </button>
             <span className="font-display text-primary-foreground text-2xl uppercase tracking-wider">
               {monthName} {currentYear}
             </span>
-            <button onClick={nextMonth} className="text-primary-foreground/60 hover:text-primary-foreground">
+            <button onClick={nextMonth} aria-label="Следующий месяц" className="text-primary-foreground/60 hover:text-primary-foreground">
               <ChevronRight size={20} />
             </button>
           </div>
 
           <div className="grid grid-cols-7 gap-1">
-            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+            {WEEKDAYS.map((d) => (
               <div key={d} className="font-body text-primary-foreground/40 text-xs text-center py-2 uppercase">
                 {d}
               </div>
@@ -170,7 +245,7 @@ const BookingSection = () => {
                 <button
                   key={day}
                   disabled={past}
-                  onClick={() => setSelectedDay(day)}
+                  onClick={() => { setSelectedDay(day); setSelectedTime(null); }}
                   className={`font-body text-sm py-3 text-center transition-colors duration-200 ${
                     past
                       ? "text-primary-foreground/20 cursor-not-allowed"
@@ -187,55 +262,54 @@ const BookingSection = () => {
         </div>
 
         {/* Time Slots */}
-        {selectedDay && (
+        {selectedDay && branch && (
           <div className="mt-10 animate-fade-in">
-            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Time</label>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-2 mt-3">
-              {timeSlots.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setSelectedTime(t)}
-                  className={`font-body text-sm py-3 border transition-colors duration-200 ${
-                    selectedTime === t
-                      ? "bg-accent text-accent-foreground border-accent"
-                      : "border-primary-foreground/20 text-primary-foreground/70 hover:border-primary-foreground/40"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Время</label>
+            <div className="grid grid-cols-4 md:grid-cols-6 gap-2 mt-3">
+              {timeSlots.map((t) => {
+                const past = isPastSlot(t);
+                return (
+                  <button
+                    key={t}
+                    disabled={past}
+                    onClick={() => setSelectedTime(t)}
+                    className={`${optionClass(selectedTime === t)} px-0 disabled:opacity-20 disabled:cursor-not-allowed`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
             </div>
           </div>
+        )}
+        {selectedDay && !branch && (
+          <p className="mt-10 font-body text-primary-foreground/60 text-sm text-center">
+            Выберите филиал, чтобы увидеть свободное время.
+          </p>
         )}
 
         {/* Contact Details & Confirm */}
         {allSelected && (
           <div className="mt-12 animate-fade-in">
-            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">Your Details</label>
-            <div className="grid md:grid-cols-3 gap-3 mt-3">
+            <label className="font-body text-primary-foreground/60 text-xs uppercase tracking-widest">
+              Ваши данные
+            </label>
+            <div className="grid gap-3 mt-3 md:grid-cols-2">
               <input
                 type="text"
-                placeholder="Full Name"
+                placeholder="Имя"
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
                 maxLength={100}
-                className="font-body text-sm py-3 px-4 bg-transparent border border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 focus:border-accent focus:outline-none transition-colors"
-              />
-              <input
-                type="email"
-                placeholder="Email Address"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                maxLength={255}
-                className="font-body text-sm py-3 px-4 bg-transparent border border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                className={inputClass}
               />
               <input
                 type="tel"
-                placeholder="Phone Number"
+                placeholder="+7 (___) ___-__-__"
                 value={contactPhone}
                 onChange={(e) => setContactPhone(e.target.value)}
                 maxLength={20}
-                className="font-body text-sm py-3 px-4 bg-transparent border border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                className={inputClass}
               />
             </div>
 
@@ -243,10 +317,11 @@ const BookingSection = () => {
               onClick={handleConfirm}
               className="w-full mt-6 bg-accent text-accent-foreground font-body font-semibold text-sm uppercase tracking-widest py-4 hover:opacity-90 transition-opacity duration-200"
             >
-              Confirm Appointment →
+              {isWhatsApp ? "Отправить в WhatsApp →" : "Подтвердить запись →"}
             </button>
             <p className="font-body text-primary-foreground/40 text-xs text-center mt-3">
-              {selectedService} with {staff.find((s) => s.id === selectedStaff)?.name} on {monthName} {selectedDay}, {currentYear} at {selectedTime}
+              {selectedService} · {selectedBarber} · {dateLabel} в {selectedTime}
+              {multiBranch && ` · ${branch.address}`}
             </p>
           </div>
         )}

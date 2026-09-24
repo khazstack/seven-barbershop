@@ -1,27 +1,38 @@
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
-
-const navLinks = [
-  { label: "Services", href: "#services" },
-  { label: "Gallery", href: "#gallery" },
-  { label: "Testimonials", href: "#testimonials" },
-  { label: "Contact", href: "#contact" },
-];
+import { siteConfig } from "@/config/site";
+import { useBooking } from "@/lib/booking";
+import Logo from "@/components/Logo";
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
+  const { openBooking } = useBooking();
+
+  const navLinks = [
+    { label: "Услуги", href: "#services" },
+    ...(siteConfig.barbers.length ? [{ label: "Барберы", href: "#team" }] : []),
+    ...(siteConfig.gallery.length ? [{ label: "Работы", href: "#gallery" }] : []),
+    ...(siteConfig.testimonials.length ? [{ label: "Отзывы", href: "#testimonials" }] : []),
+    siteConfig.branches.length > 1
+      ? { label: "Филиалы", href: "#branches" }
+      : { label: "Контакты", href: "#contact" },
+  ];
 
   const handleClick = (href: string) => {
     setOpen(false);
-    const el = document.querySelector(href);
-    el?.scrollIntoView({ behavior: "smooth" });
+    document.querySelector(href)?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleBook = () => {
+    setOpen(false);
+    openBooking();
   };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-primary/90 backdrop-blur-sm">
       <div className="section-padding max-w-[1400px] mx-auto flex items-center justify-between h-16">
-        <a href="#" className="font-display text-primary-foreground text-2xl tracking-wider uppercase">
-          TrimSync
+        <a href="#" className="text-primary-foreground text-2xl" aria-label={siteConfig.brand.name}>
+          <Logo />
         </a>
 
         {/* Desktop */}
@@ -36,15 +47,19 @@ const Navbar = () => {
             </button>
           ))}
           <button
-            onClick={() => handleClick("#booking")}
+            onClick={handleBook}
             className="bg-accent text-accent-foreground font-body font-semibold text-sm uppercase tracking-widest px-5 py-2 hover:opacity-90 transition-opacity duration-200"
           >
-            Book Appointment
+            Записаться
           </button>
         </div>
 
         {/* Mobile toggle */}
-        <button onClick={() => setOpen(!open)} className="md:hidden text-primary-foreground">
+        <button
+          onClick={() => setOpen(!open)}
+          className="md:hidden text-primary-foreground"
+          aria-label={open ? "Закрыть меню" : "Открыть меню"}
+        >
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
@@ -62,10 +77,10 @@ const Navbar = () => {
             </button>
           ))}
           <button
-            onClick={() => handleClick("#booking")}
+            onClick={handleBook}
             className="block w-full bg-accent text-accent-foreground font-body font-semibold text-sm uppercase tracking-widest px-5 py-3 hover:opacity-90 transition-opacity duration-200 text-center"
           >
-            Book Appointment
+            Записаться
           </button>
         </div>
       )}
